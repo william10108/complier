@@ -1,4 +1,7 @@
+/* lexer.l */
 %option noyywrap
+%option yylineno
+
 %{
 #include "parser.tab.h"
 #include <stdlib.h>
@@ -9,6 +12,8 @@ NUMBER  [0-9]+
 
 %%
 
+\n              { yylineno++;            /* 記錄行號 */ }
+[ \t\r]+        /* skip whitespace */;
 "int"           return INT;
 "return"        return RETURN;
 "if"            return IF;
@@ -27,7 +32,6 @@ NUMBER  [0-9]+
 {ID}            { yylval.sval = strdup(yytext); return IDENTIFIER; }
 {NUMBER}        { yylval.ival = atoi(yytext);    return NUMBER; }
 
-[ \t\r\n]+      /* skip whitespace */;
 "("             return '(';
 ")"             return ')';
 "{"             return '{';
