@@ -1,11 +1,10 @@
-%option noyywrap
+%option noyywrap yylineno
 %{
 #include "parser.tab.h"
 #include <stdlib.h>
 #include <stdio.h>
 
-/* 追蹤行號、欄號與當前行內容 */
-int yylineno = 1;
+/* 追蹤欄號與當前行內容 */
 int yycolumn = 1;
 char yylinebuf[1024] = "";
 
@@ -26,8 +25,7 @@ NUMBER  [0-9]+
 
 %%
 
-\n              { /* 換行：行號＋1，欄號歸 1，清空行緩衝 */ \
-                  yylineno++; yycolumn = 1; yylinebuf[0] = '\0'; }
+\n              { /* flex 會自動 ++yylineno */ yycolumn = 1; yylinebuf[0] = '\0'; }
 [ \t]+          { STORE; }
 
 "int"           { STORE; return INT; }
@@ -64,3 +62,22 @@ NUMBER  [0-9]+
 
 .               { STORE; return yytext[0]; }
 %%
+
+/* bottom code, 不要再定義 yylineno ！ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+extern int yylex();
+extern char *yytext;
+extern int yylineno;       /* flex 自動產生 */
+extern int yycolumn;       /* 我們自己追蹤的欄號 */
+extern char yylinebuf[];   /* 當前行內容 */
+
+void yyerror(const char *s) {
+    fprintf(stderr, "Syntax error at line %d, column %d: %s\n",
+            yylineno, yycolumn, s);
+    fprintf(stderr, "%s\n", yylinebuf);
+    fprintf(stderr, "%*s^\n", yycolumn - 1, "");
+    exit(1);
+}
