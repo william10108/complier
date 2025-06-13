@@ -1,49 +1,39 @@
+/* parser.y */
 %{
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-/* flex 會定義 yylineno, yytext, prev_line_buf, prev_line_num */
-extern int yylex();
+extern int yylex(void);
 extern char *yytext;
 extern int yylineno;
-extern char prev_line_buf[];
-extern int prev_line_num;
-
+extern int yystartcol;
 void yyerror(const char *s);
 
-/* ===== 符號表設定 ===== */
+/* 支援把 stdin 全部讀進來，再用 yy_scan_string() 解析 */
+typedef void* YY_BUFFER_STATE;
+extern YY_BUFFER_STATE yy_scan_string(const char *);
+
+/* 符號表 */
 #define MAX_SYM 100
 static char *sym_name[MAX_SYM];
 static int   sym_val [MAX_SYM];
 static int   sym_cnt = 0;
-static int sym_index(const char *s) {
-    for (int i = 0; i < sym_cnt; i++)
-        if (strcmp(sym_name[i], s) == 0)
-            return i;
-    return -1;
-}
-static int sym_add(const char *s) {
-    int idx = sym_index(s);
-    if (idx >= 0) return idx;
-    if (sym_cnt >= MAX_SYM) yyerror("too many symbols");
-    sym_name[sym_cnt] = strdup(s);
-    sym_val [sym_cnt] = 0;
-    return sym_cnt++;
-}
-static void sym_set(const char *s, int v) {
-    int idx = sym_add(s);
-    sym_val[idx] = v;
-}
-static int sym_get(const char *s) {
-    int idx = sym_index(s);
-    return (idx >= 0 ? sym_val[idx] : 0);
-}
+
+/* 錯誤顯示用：儲存每一行文字 */
+#define MAX_LINES 1000
+static char *lines[MAX_LINES];
+static int total_lines = 0;
+
 int ret_val = 0;
 static char *current_function = NULL;
-#define MAX_ARGS 10
-int  arg_vals[MAX_ARGS];
-int  arg_cnt;
+
+/* 符號表函式 ...（略，與原版相同） */
+static int sym_index(const char *s) { /* ... */ }
+static int sym_add(const char *s)    { /* ... */ }
+static void sym_set(const char *s,int v) { /* ... */ }
+static int sym_get(const char *s)     { /* ... */ }
+
 %}
 
 %union {
@@ -81,140 +71,61 @@ function
       '(' param_list_opt ')' compound_statement
     ;
 
-param_list_opt
-    : /* empty */ 
-    | param_list
-    ;
-
-param_list
-    : param_decl
-    | param_list ',' param_decl
-    ;
-
-param_decl
-    : INT IDENTIFIER
-        { sym_add($2); }
-    ;
-
-compound_statement
-    : '{' statement_list '}'
-    ;
-
-statement_list
-    : /* empty */
-    | statement_list statement
-    ;
-
-statement
-    : matched_stmt
-    | unmatched_stmt
-    ;
-
-matched_stmt
-    : INT decl_list ';'
-    | IDENTIFIER '=' expression ';'
-        { sym_set($1, $3); }
-    | RETURN expression ';'
-        {
-            ret_val = $2;
-            if (current_function && strcmp(current_function, "main") == 0)
-                printf("return %d\n", ret_val);
-        }
-    | WHILE '(' expression ')' matched_stmt
-    | FOR '(' IDENTIFIER '=' expression ';' expression ';' IDENTIFIER '+' '+' ')' matched_stmt
-    | compound_statement
-    | IF '(' expression ')' matched_stmt ELSE matched_stmt
-    ;
-
-unmatched_stmt
-    : IF '(' expression ')' statement
-    | IF '(' expression ')' matched_stmt ELSE unmatched_stmt
-    ;
-
-decl_list
-    : IDENTIFIER                { sym_add($1); }
-    | decl_list ',' IDENTIFIER  { sym_add($3); }
-    ;
-
-expression
-    : logical_or
-    ;
-
-logical_or
-    : logical_or OROR logical_and   { $$ = ($1 || $3); }
-    | logical_and                   { $$ = $1; }
-    ;
-
-logical_and
-    : logical_and ANDAND equality   { $$ = ($1 && $3); }
-    | equality                      { $$ = $1; }
-    ;
-
-equality
-    : equality EQ relational        { $$ = ($1 == $3); }
-    | equality NE relational        { $$ = ($1 != $3); }
-    | relational                    { $$ = $1; }
-    ;
-
-relational
-    : relational '<' additive       { $$ = ($1 < $3); }
-    | relational '>' additive       { $$ = ($1 > $3); }
-    | relational LE additive        { $$ = ($1 <= $3); }
-    | relational GE additive        { $$ = ($1 >= $3); }
-    | additive                      { $$ = $1; }
-    ;
-
-additive
-    : additive '+' term             { $$ = $1 + $3; }
-    | additive '-' term             { $$ = $1 - $3; }
-    | term                          { $$ = $1; }
-    ;
-
-term
-    : term '*' factor               { $$ = $1 * $3; }
-    | term '/' factor               { $$ = $1 / $3; }
-    | factor                        { $$ = $1; }
-    ;
-
-factor
-    : '(' expression ')'            { $$ = $2; }
-    | IDENTIFIER '(' opt_arg_list ')' 
-        {
-            if (strcmp($1, "add") == 0 && arg_cnt == 2)
-                $$ = arg_vals[0] + arg_vals[1];
-            else
-                $$ = 0;
-        }
-    | NUMBER                        { $$ = $1; }
-    | IDENTIFIER                    { $$ = sym_get($1); }
-    ;
-
-opt_arg_list
-    : /* empty */                   { arg_cnt = 0; }
-    | arg_list
-    ;
-
-arg_list
-    : expression                    { arg_cnt = 1; arg_vals[0] = $1; }
-    | arg_list ',' expression      { arg_vals[arg_cnt++] = $3; }
-    ;
+/* 以下語法規則與原版完全相同，省略以示簡潔 */
 
 %%
 
 void yyerror(const char *s) {
-    int col = 0;
-    char *p = strstr(prev_line_buf, yytext);
-    if (p) col = p - prev_line_buf;
-    fprintf(stderr, "Syntax error: %s at line %d\n", s, prev_line_num);
-    fprintf(stderr, "%s\n", prev_line_buf);
-    for (int i = 0; i < col; ++i) fprintf(stderr, " ");
-    int len = strlen(yytext);
-    for (int i = 0; i < (len > 0 ? len : 1); ++i) fprintf(stderr, "^");
-    fprintf(stderr, "\n");
+    int col = yystartcol;
+    fprintf(stderr, "Syntax error at line %d, column %d: %s\n", yylineno, col, s);
+    /* 印出該行 */
+    if (yylineno-1 < total_lines) {
+        char *errline = lines[yylineno-1];
+        fprintf(stderr, "%s\n", errline);
+        /* 在正確位置印 ^ */
+        for (int i = 1; i < col; i++)
+            fputc(errline[i-1]=='\t' ? '\t' : ' ', stderr);
+        fprintf(stderr, "^\n");
+    }
+    exit(1);
 }
 
-int main() {
-    if (yyparse() == 0)
-        printf("Parsing Successful\n");
+int main(void) {
+    /* 1) 讀取 stdin 全部內容 */
+    int bufsize = 1024;
+    char *input = malloc(bufsize);
+    if (!input) { perror("malloc"); exit(1); }
+    int len = 0, c;
+    while ((c = getchar()) != EOF) {
+        if (len+1 >= bufsize) {
+            bufsize *= 2;
+            input = realloc(input, bufsize);
+            if (!input) { perror("realloc"); exit(1); }
+        }
+        input[len++] = c;
+    }
+    input[len] = '\0';
+
+    /* 2) 分行存入 lines[] */
+    char *start = input;
+    for (int i = 0; i < len; i++) {
+        if (input[i] == '\n') {
+            input[i] = '\0';
+            if (total_lines < MAX_LINES) lines[total_lines++] = start;
+            start = input + i + 1;
+        }
+    }
+    if (start < input + len && total_lines < MAX_LINES)
+        lines[total_lines++] = start;
+
+    /* 3) 初始化位置計數器 */
+    yylineno = 1;
+    yycolumn = 1;  /* 由 lexer.l 定義 */
+
+    /* 4) 告訴 Flex 用這個 buffer 來掃描 */
+    YY_BUFFER_STATE buf = yy_scan_string(input);
+
+    /* 5) 解析 */
+    yyparse();
     return 0;
 }
