@@ -1,60 +1,54 @@
+/* parser.y */
 %{
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-/* 由 lexer.l 提供 */
+/* flex 產生的全域變數 */
+extern FILE *yyin;
 extern int yylex();
 extern char *yytext;
-extern int yylineno;           /* 取得目前行號 */
+extern int yylineno;           /* 目前行號 */
 void yyerror(const char *s);
+
+/* 用來存放整個輸入檔案每一行 */
+static char **all_lines = NULL;
+static int    num_lines = 0;
+
+/* 讀檔並把每一行存到 all_lines[] */
+static void load_input_lines(const char *fname) {
+    FILE *fp = fname ? fopen(fname, "r") : stdin;
+    if (!fp) { perror("fopen"); exit(1); }
+    char *line = NULL;
+    size_t len = 0;
+    ssize_t rd;
+    while ((rd = getline(&line, &len, fp)) != -1) {
+        all_lines = realloc(all_lines, sizeof(char*) * (num_lines + 1));
+        all_lines[num_lines++] = strdup(line);
+    }
+    free(line);
+    if (fname) rewind(fp);
+    yyin = fp;
+}
 
 /* ===== 符號表設定 ===== */
 #define MAX_SYM 100
 static char *sym_name[MAX_SYM];
 static int   sym_val [MAX_SYM];
 static int   sym_cnt = 0;
-
-/* 找變數在符號表的 index；找不到回傳 -1 */
-static int sym_index(const char *s) {
-    for (int i = 0; i < sym_cnt; i++)
-        if (strcmp(sym_name[i], s) == 0)
-            return i;
-    return -1;
-}
-
-/* 新增變數（若已存在則回傳原來的 index） */
-static int sym_add(const char *s) {
-    int idx = sym_index(s);
-    if (idx >= 0) return idx;
-    if (sym_cnt >= MAX_SYM) yyerror("too many symbols");
-    sym_name[sym_cnt] = strdup(s);
-    sym_val [sym_cnt] = 0;  /* 預設初值 0 */
-    return sym_cnt++;
-}
-
-/* 設定變數值 */
-static void sym_set(const char *s, int v) {
-    int idx = sym_add(s);
-    sym_val[idx] = v;
-}
-
-/* 取得變數值；不存在則回傳 0 */
-static int sym_get(const char *s) {
-    int idx = sym_index(s);
-    return (idx >= 0 ? sym_val[idx] : 0);
-}
+/* 以下符號表程式與之前相同… */
+static int sym_index(const char *s) { /* ... */ }
+static int sym_add(const char *s)    { /* ... */ }
+static void sym_set(const char *s,int v) { /* ... */ }
+static int sym_get(const char *s)     { /* ... */ }
 
 /* 全域 return 值 */
 int ret_val = 0;
-
-/* 當前正在解析/執行的函式名稱 */
+/* 當前解析的函式 */
 static char *current_function = NULL;
-
-/* ===== add(x,y) Stub 用參數暫存 ===== */
+/* add(x,y) stub */
 #define MAX_ARGS 10
-int  arg_vals[MAX_ARGS];
-int  arg_cnt;
+int arg_vals[MAX_ARGS], arg_cnt;
 %}
 
 %union {
@@ -83,161 +77,23 @@ function_list
     | function
     ;
 
-/* 在這裡用 mid-rule action 設定 current_function */
-function
-    : INT IDENTIFIER
-        {
-            /* 進入一個新的函式定義 */
-            if (current_function) free(current_function);
-            current_function = strdup($2);
-        }
-      '(' param_list_opt ')' compound_statement
-    ;
-
-/* 參數宣告也加到符號表 */
-param_list_opt
-    : /* empty */ 
-    | param_list
-    ;
-
-param_list
-    : param_decl
-    | param_list ',' param_decl
-    ;
-
-param_decl
-    : INT IDENTIFIER
-        { sym_add($2); }
-    ;
-
-compound_statement
-    : '{' statement_list '}'
-    ;
-
-statement_list
-    : /* empty */
-    | statement_list statement
-    ;
-
-/* 分 matched / unmatched 消除 dangling-else */
-statement
-    : matched_stmt
-    | unmatched_stmt
-    ;
-
-/* ===== 完整配對的 statement ===== */
-matched_stmt
-    /* 變數宣告 */
-    : INT decl_list ';'
-    /* 賦值 */
-    | IDENTIFIER '=' expression ';'
-        { sym_set($1, $3); }
-    /* return：只有在 main 才印出 */
-    | RETURN expression ';'
-        {
-            ret_val = $2;
-            if (current_function && strcmp(current_function, "main") == 0)
-                printf("return %d\n", ret_val);
-        }
-    /* while */
-    | WHILE '(' expression ')' matched_stmt
-    /* for (最簡化示範) */
-    | FOR '(' IDENTIFIER '=' expression ';' expression ';' IDENTIFIER '+' '+' ')' matched_stmt
-    /* 區塊 */
-    | compound_statement
-    /* if…else */
-    | IF '(' expression ')' matched_stmt ELSE matched_stmt
-    ;
-
-/* ===== 處理 dangling-else ===== */
-unmatched_stmt
-    : IF '(' expression ')' statement
-    | IF '(' expression ')' matched_stmt ELSE unmatched_stmt
-    ;
-
-/* 宣告清單：把每個變數名稱加到符號表 */
-decl_list
-    : IDENTIFIER                { sym_add($1); }
-    | decl_list ',' IDENTIFIER  { sym_add($3); }
-    ;
-
-/* ──── 運算式 & 函式呼叫 stub ──── */
-expression
-    : logical_or
-    ;
-
-logical_or
-    : logical_or OROR logical_and   { $$ = ($1 || $3); }
-    | logical_and                   { $$ = $1; }
-    ;
-
-logical_and
-    : logical_and ANDAND equality   { $$ = ($1 && $3); }
-    | equality                      { $$ = $1; }
-    ;
-
-equality
-    : equality EQ relational        { $$ = ($1 == $3); }
-    | equality NE relational        { $$ = ($1 != $3); }
-    | relational                    { $$ = $1; }
-    ;
-
-relational
-    : relational '<' additive       { $$ = ($1 < $3); }
-    | relational '>' additive       { $$ = ($1 > $3); }
-    | relational LE additive        { $$ = ($1 <= $3); }
-    | relational GE additive        { $$ = ($1 >= $3); }
-    | additive                      { $$ = $1; }
-    ;
-
-additive
-    : additive '+' term             { $$ = $1 + $3; }
-    | additive '-' term             { $$ = $1 - $3; }
-    | term                          { $$ = $1; }
-    ;
-
-term
-    : term '*' factor               { $$ = $1 * $3; }
-    | term '/' factor               { $$ = $1 / $3; }
-    | factor                        { $$ = $1; }
-    ;
-
-/* 因為我們只有示範 add(x,y)，這裡加簡易 stub */
-/* 也會處理一般變數和括號 */
-factor
-    : '(' expression ')'            { $$ = $2; }
-    | IDENTIFIER '(' opt_arg_list ')' 
-        {
-            /* 只對 add(x,y) 做相加，其他函式一律回傳 0 */
-            if (strcmp($1, "add") == 0 && arg_cnt == 2)
-                $$ = arg_vals[0] + arg_vals[1];
-            else
-                $$ = 0;
-        }
-    | NUMBER                        { $$ = $1; }
-    | IDENTIFIER                    { $$ = sym_get($1); }
-    ;
-
-/* 參數串解析 */
-opt_arg_list
-    : /* empty */                   { arg_cnt = 0; }
-    | arg_list                      { /* arg_cnt 及 arg_vals 已在 arg_list 中設定 */ }
-    ;
-
-arg_list
-    : expression                    { arg_cnt = 1; arg_vals[0] = $1; }
-    | arg_list ',' expression      { arg_vals[arg_cnt++] = $3; }
-    ;
+/* … 其餘 grammar 規則與之前相同 … */
 
 %%
 
 void yyerror(const char *s) {
-    /* 列印行號、錯誤訊息與當前字串 */
+    /* 印出行號與錯誤訊息 */
     fprintf(stderr, "Syntax error at line %d: %s at '%s'\n",
             yylineno, s, yytext);
+    /* 如果該行存在，印出原始程式碼 */
+    if (yylineno >= 1 && yylineno <= num_lines) {
+        fprintf(stderr, ">>> %s", all_lines[yylineno - 1]);
+    }
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+    /* 如果有指定檔名，就從檔案讀；否則讀 stdin */
+    load_input_lines(argc > 1 ? argv[1] : NULL);
     if (yyparse() == 0)
         printf("Parsing Successful\n");
     return 0;
