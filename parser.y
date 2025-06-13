@@ -1,4 +1,3 @@
-/* 檔名：parser.y */
 %{
 #include <stdio.h>
 #include <stdlib.h>
@@ -6,8 +5,6 @@
 
 extern int yylex();
 extern char *yytext;
-extern int yylineno;           /* 由 flex 提供的行號 */
-
 void yyerror(const char *s);
 
 /* ===== 符號表設定 ===== */
@@ -30,15 +27,17 @@ static int sym_add(const char *s) {
     if (idx >= 0) return idx;
     if (sym_cnt >= MAX_SYM) yyerror("too many symbols");
     sym_name[sym_cnt] = strdup(s);
-    sym_val [sym_cnt] = 0;
+    sym_val [sym_cnt] = 0;  /* 預設初值 0 */
     return sym_cnt++;
 }
 
+/* 設定變數值 */
 static void sym_set(const char *s, int v) {
     int idx = sym_add(s);
     sym_val[idx] = v;
 }
 
+/* 取得變數值；不存在則回傳 0 */
 static int sym_get(const char *s) {
     int idx = sym_index(s);
     return (idx >= 0 ? sym_val[idx] : 0);
@@ -46,9 +45,11 @@ static int sym_get(const char *s) {
 
 /* 全域 return 值 */
 int ret_val = 0;
+
+/* 當前正在解析/執行的函式名稱 */
 static char *current_function = NULL;
 
-/* Stub for add(x,y) */
+/* ===== add(x,y) Stub 用參數暫存 ===== */
 #define MAX_ARGS 10
 int  arg_vals[MAX_ARGS];
 int  arg_cnt;
@@ -80,15 +81,18 @@ function_list
     | function
     ;
 
+/* 在這裡用 mid-rule action 設定 current_function */
 function
     : INT IDENTIFIER
         {
+            /* 進入一個新的函式定義 */
             if (current_function) free(current_function);
             current_function = strdup($2);
         }
       '(' param_list_opt ')' compound_statement
     ;
 
+/* 參數宣告也加到符號表 */
 param_list_opt
     : /* empty */ 
     | param_list
@@ -113,37 +117,49 @@ statement_list
     | statement_list statement
     ;
 
+/* 分 matched / unmatched 消除 dangling-else */
 statement
     : matched_stmt
     | unmatched_stmt
     ;
 
+/* ===== 完整配對的 statement ===== */
 matched_stmt
+    /* 變數宣告 */
     : INT decl_list ';'
+    /* 賦值 */
     | IDENTIFIER '=' expression ';'
         { sym_set($1, $3); }
+    /* return：只有在 main 才印出 */
     | RETURN expression ';'
         {
             ret_val = $2;
             if (current_function && strcmp(current_function, "main") == 0)
                 printf("return %d\n", ret_val);
         }
+    /* while */
     | WHILE '(' expression ')' matched_stmt
+    /* for (最簡化示範) */
     | FOR '(' IDENTIFIER '=' expression ';' expression ';' IDENTIFIER '+' '+' ')' matched_stmt
+    /* 區塊 */
     | compound_statement
+    /* if…else */
     | IF '(' expression ')' matched_stmt ELSE matched_stmt
     ;
 
+/* ===== 處理 dangling-else ===== */
 unmatched_stmt
     : IF '(' expression ')' statement
     | IF '(' expression ')' matched_stmt ELSE unmatched_stmt
     ;
 
+/* 宣告清單：把每個變數名稱加到符號表 */
 decl_list
     : IDENTIFIER                { sym_add($1); }
     | decl_list ',' IDENTIFIER  { sym_add($3); }
     ;
 
+/* ──── 運算式 & 函式呼叫 stub ──── */
 expression
     : logical_or
     ;
@@ -184,10 +200,13 @@ term
     | factor                        { $$ = $1; }
     ;
 
+/* 因為我們只有示範 add(x,y)，這裡加簡易 stub */
+/* 也會處理一般變數和括號 */
 factor
     : '(' expression ')'            { $$ = $2; }
     | IDENTIFIER '(' opt_arg_list ')' 
         {
+            /* 只對 add(x,y) 做相加，其他函式一律回傳 0 */
             if (strcmp($1, "add") == 0 && arg_cnt == 2)
                 $$ = arg_vals[0] + arg_vals[1];
             else
@@ -197,9 +216,10 @@ factor
     | IDENTIFIER                    { $$ = sym_get($1); }
     ;
 
+/* 參數串解析 */
 opt_arg_list
     : /* empty */                   { arg_cnt = 0; }
-    | arg_list
+    | arg_list                      { /* arg_cnt 及 arg_vals 已在 arg_list 中設定 */ }
     ;
 
 arg_list
@@ -210,8 +230,7 @@ arg_list
 %%
 
 void yyerror(const char *s) {
-    fprintf(stderr, "Syntax error at line %d: %s near '%s'\n",
-            yylineno, s, yytext);
+    fprintf(stderr, "Syntax error: %s at '%s'\n", s, yytext);
 }
 
 int main() {
