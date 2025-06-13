@@ -1,14 +1,15 @@
-/* parser.y */
 %{
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+/* flex 會定義 yylineno, yytext, prev_line_buf, prev_line_num */
 extern int yylex();
+extern char *yytext;
 extern int yylineno;
-extern int yycolumn;
-extern char yytext[];
-extern char yylinebuf[];
+extern char prev_line_buf[];
+extern int prev_line_num;
+
 void yyerror(const char *s);
 
 /* ===== 符號表設定 ===== */
@@ -16,16 +17,12 @@ void yyerror(const char *s);
 static char *sym_name[MAX_SYM];
 static int   sym_val [MAX_SYM];
 static int   sym_cnt = 0;
-
-/* 找變數在符號表的 index；找不到回傳 -1 */
 static int sym_index(const char *s) {
     for (int i = 0; i < sym_cnt; i++)
         if (strcmp(sym_name[i], s) == 0)
             return i;
     return -1;
 }
-
-/* 新增變數（若已存在則回傳原來的 index） */
 static int sym_add(const char *s) {
     int idx = sym_index(s);
     if (idx >= 0) return idx;
@@ -34,15 +31,16 @@ static int sym_add(const char *s) {
     sym_val [sym_cnt] = 0;
     return sym_cnt++;
 }
-
-/* 設定/取得變數值 */
-static void sym_set(const char *s, int v) { sym_val[sym_add(s)] = v; }
-static int  sym_get(const char *s) { int i=sym_index(s); return i>=0?sym_val[i]:0; }
-
+static void sym_set(const char *s, int v) {
+    int idx = sym_add(s);
+    sym_val[idx] = v;
+}
+static int sym_get(const char *s) {
+    int idx = sym_index(s);
+    return (idx >= 0 ? sym_val[idx] : 0);
+}
 int ret_val = 0;
 static char *current_function = NULL;
-
-/* Stub 參數暫存 */
 #define MAX_ARGS 10
 int  arg_vals[MAX_ARGS];
 int  arg_cnt;
@@ -75,7 +73,8 @@ function_list
     ;
 
 function
-    : INT IDENTIFIER {
+    : INT IDENTIFIER
+        {
             if (current_function) free(current_function);
             current_function = strdup($2);
         }
@@ -83,7 +82,7 @@ function
     ;
 
 param_list_opt
-    : /* empty */
+    : /* empty */ 
     | param_list
     ;
 
@@ -93,7 +92,8 @@ param_list
     ;
 
 param_decl
-    : INT IDENTIFIER { sym_add($2); }
+    : INT IDENTIFIER
+        { sym_add($2); }
     ;
 
 compound_statement
@@ -112,10 +112,12 @@ statement
 
 matched_stmt
     : INT decl_list ';'
-    | IDENTIFIER '=' expression ';'   { sym_set($1, $3); }
-    | RETURN expression ';'           {
+    | IDENTIFIER '=' expression ';'
+        { sym_set($1, $3); }
+    | RETURN expression ';'
+        {
             ret_val = $2;
-            if (current_function && strcmp(current_function,"main")==0)
+            if (current_function && strcmp(current_function, "main") == 0)
                 printf("return %d\n", ret_val);
         }
     | WHILE '(' expression ')' matched_stmt
@@ -139,71 +141,76 @@ expression
     ;
 
 logical_or
-    : logical_or OROR logical_and { $$ = ($1 || $3); }
-    | logical_and                { $$ = $1; }
+    : logical_or OROR logical_and   { $$ = ($1 || $3); }
+    | logical_and                   { $$ = $1; }
     ;
 
 logical_and
-    : logical_and ANDAND equality { $$ = ($1 && $3); }
-    | equality                    { $$ = $1; }
+    : logical_and ANDAND equality   { $$ = ($1 && $3); }
+    | equality                      { $$ = $1; }
     ;
 
 equality
-    : equality EQ relational      { $$ = ($1 == $3); }
-    | equality NE relational      { $$ = ($1 != $3); }
-    | relational                  { $$ = $1; }
+    : equality EQ relational        { $$ = ($1 == $3); }
+    | equality NE relational        { $$ = ($1 != $3); }
+    | relational                    { $$ = $1; }
     ;
 
 relational
-    : relational '<' additive     { $$ = ($1 < $3); }
-    | relational '>' additive     { $$ = ($1 > $3); }
-    | relational LE additive      { $$ = ($1 <= $3); }
-    | relational GE additive      { $$ = ($1 >= $3); }
-    | additive                    { $$ = $1; }
+    : relational '<' additive       { $$ = ($1 < $3); }
+    | relational '>' additive       { $$ = ($1 > $3); }
+    | relational LE additive        { $$ = ($1 <= $3); }
+    | relational GE additive        { $$ = ($1 >= $3); }
+    | additive                      { $$ = $1; }
     ;
 
 additive
-    : additive '+' term           { $$ = $1 + $3; }
-    | additive '-' term           { $$ = $1 - $3; }
-    | term                        { $$ = $1; }
+    : additive '+' term             { $$ = $1 + $3; }
+    | additive '-' term             { $$ = $1 - $3; }
+    | term                          { $$ = $1; }
     ;
 
 term
-    : term '*' factor             { $$ = $1 * $3; }
-    | term '/' factor             { $$ = $1 / $3; }
-    | factor                      { $$ = $1; }
+    : term '*' factor               { $$ = $1 * $3; }
+    | term '/' factor               { $$ = $1 / $3; }
+    | factor                        { $$ = $1; }
     ;
 
 factor
-    : '(' expression ')'          { $$ = $2; }
-    | IDENTIFIER '(' opt_arg_list ')' {
-            if (strcmp($1,"add")==0 && arg_cnt==2)
+    : '(' expression ')'            { $$ = $2; }
+    | IDENTIFIER '(' opt_arg_list ')' 
+        {
+            if (strcmp($1, "add") == 0 && arg_cnt == 2)
                 $$ = arg_vals[0] + arg_vals[1];
             else
                 $$ = 0;
         }
-    | NUMBER                      { $$ = $1; }
-    | IDENTIFIER                  { $$ = sym_get($1); }
+    | NUMBER                        { $$ = $1; }
+    | IDENTIFIER                    { $$ = sym_get($1); }
     ;
 
 opt_arg_list
-    : /* empty */                 { arg_cnt = 0; }
+    : /* empty */                   { arg_cnt = 0; }
     | arg_list
     ;
 
 arg_list
-    : expression                  { arg_cnt = 1; arg_vals[0] = $1; }
-    | arg_list ',' expression     { arg_vals[arg_cnt++] = $3; }
+    : expression                    { arg_cnt = 1; arg_vals[0] = $1; }
+    | arg_list ',' expression      { arg_vals[arg_cnt++] = $3; }
     ;
 
 %%
 
 void yyerror(const char *s) {
-    fprintf(stderr, "Syntax error: %s at line %d, column %d\n", s, yylineno, yycolumn);
-    fprintf(stderr, "%s\n", yylinebuf);
-    for (int i = 1; i < yycolumn; ++i) fputc(' ', stderr);
-    fputc('^', stderr);
-    fputc('\n', stderr);
+    int col = 0;
+    char *p = strstr(prev_line_buf, yytext);
+    if (p) col = p - prev_line_buf;
+    fprintf(stderr, "Syntax error: %s at line %d\n", s, prev_line_num);
+    fprintf(stderr, "%s\n", prev_line_buf);
+    for (int i = 0; i < col; ++i) fprintf(stderr, " ");
+    int len = strlen(yytext);
+    for (int i = 0; i < (len > 0 ? len : 1); ++i) fprintf(stderr, "^");
+    fprintf(stderr, "\n");
 }
 
 int main() {

@@ -1,40 +1,36 @@
-/* lexer.l */
 %option noyywrap yylineno
-
 %{
 #include "parser.tab.h"
 #include <stdlib.h>
 #include <string.h>
 
-int yycolumn = 1;
-#define MAXLINE 1024
-char yylinebuf[MAXLINE];
-int yylinepos = 0;
+/* 用來儲存當前行和上一行的 buffer */
+char line_buf[1024];
+int line_pos = 0;
+char prev_line_buf[1024] = "";
+int prev_line_num = 1;
+
+/* 每次 matched token 前都會執行：累積到 line_buf，遇到 '\n' 轉存到 prev_line_buf */
+#define YY_USER_ACTION \
+    do { \
+        for (int i = 0; i < yyleng; ++i) { \
+            if (yytext[i] == '\n') { \
+                line_buf[line_pos] = '\0'; \
+                strcpy(prev_line_buf, line_buf); \
+                prev_line_num = yylineno; \
+                line_pos = 0; \
+            } else if (line_pos < 1023) { \
+                line_buf[line_pos++] = yytext[i]; \
+            } \
+        } \
+    } while (0)
 %}
 
-/* token 定義 */
 ID      [a-zA-Z_][a-zA-Z0-9_]*
 NUMBER  [0-9]+
 
 %%
 
-/* 處理空白(不包含換行)，更新 column & line buffer */
-[ \t\r]+   {
-              for (int i = 0; yytext[i]; ++i) {
-                  ++yycolumn;
-                  if (yylinepos < MAXLINE-1)
-                      yylinebuf[yylinepos++] = yytext[i];
-              }
-          }
-/* 處理換行：行號＋＋，重置 column & line buffer */
-\n         {
-              ++yylineno;
-              yycolumn = 1;
-              yylinepos = 0;
-              yylinebuf[0] = '\0';
-          }
-
-/* 關鍵字與符號 */
 "int"           return INT;
 "return"        return RETURN;
 "if"            return IF;
@@ -50,36 +46,25 @@ NUMBER  [0-9]+
 "||"            return OROR;
 "!"             return NOT;
 
-{ID}            { yylval.sval = strdup(yytext); yycolumn += strlen(yytext);
-                  if (yylinepos + yyleng < MAXLINE-1) {
-                      memcpy(yylinebuf + yylinepos, yytext, yyleng);
-                      yylinepos += yyleng;
-                  }
-                  return IDENTIFIER;
-                }
-{NUMBER}        { yylval.ival = atoi(yytext); yycolumn += strlen(yytext);
-                  if (yylinepos + yyleng < MAXLINE-1) {
-                      memcpy(yylinebuf + yylinepos, yytext, yyleng);
-                      yylinepos += yyleng;
-                  }
-                  return NUMBER;
-                }
+{ID}            { yylval.sval = strdup(yytext); return IDENTIFIER; }
+{NUMBER}        { yylval.ival = atoi(yytext);    return NUMBER; }
 
-/* 其他符號 */
-"("             { yycolumn++;  yylinebuf[yylinepos++]='('; return '('; }
-")"             { yycolumn++;  yylinebuf[yylinepos++]=')'; return ')'; }
-"{"             { yycolumn++;  yylinebuf[yylinepos++]='{'; return '{'; }
-"}"             { yycolumn++;  yylinebuf[yylinepos++]='}'; return '}'; }
-";"             { yycolumn++;  yylinebuf[yylinepos++]=';'; return ';'; }
-","             { yycolumn++;  yylinebuf[yylinepos++]=','; return ','; }
-"="             { yycolumn++;  yylinebuf[yylinepos++]='='; return '='; }
-"<"             { yycolumn++;  yylinebuf[yylinepos++]='<'; return '<'; }
-">"             { yycolumn++;  yylinebuf[yylinepos++]='>'; return '>'; }
-"+"             { yycolumn++;  yylinebuf[yylinepos++]='+'; return '+'; }
-"-"             { yycolumn++;  yylinebuf[yylinepos++]='-'; return '-'; }
-"*"             { yycolumn++;  yylinebuf[yylinepos++]='*'; return '*'; }
-"/"             { yycolumn++;  yylinebuf[yylinepos++]='/'; return '/'; }
+[ \t]+          /* skip spaces/tabs */;
+\n              /* newline handled in YY_USER_ACTION, skip */;
 
-.               { yycolumn++;  yylinebuf[yylinepos++]=yytext[0]; return yytext[0]; }
+"("             return '(';
+")"             return ')';
+"{"             return '{';
+"}"             return '}';
+";"             return ';';
+","             return ',';
+"="             return '=';
+"<"             return '<';
+">"             return '>';
+"+"             return '+';
+"-"             return '-';
+"*"             return '*';
+"/"             return '/';
 
+.               { return yytext[0]; }
 %%
