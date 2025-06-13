@@ -4,8 +4,11 @@
 %{
 #include "parser.tab.h"
 #include <stdlib.h>
-int yycolumn = 1;        /* 全域目前欄位 */
-int yystartcol;          /* 本次 token 起始欄位 */
+
+/* 欄位追蹤 */
+int yycolumn = 1;
+int yystartcol;
+/* 每掃一個 token 就更新欄號 */
 #define YY_USER_ACTION (yystartcol = yycolumn, yycolumn += yyleng)
 %}
 
@@ -15,7 +18,7 @@ NUMBER  [0-9]+
 %%
 
 \n              { yylineno++; yycolumn = 1; }
-[ \t\r]+        { yycolumn += yyleng; }  /* 跳過空白但要累加欄位 */
+[ \t\r]+        { yycolumn += yyleng;   }
 
 "int"           { return INT; }
 "return"        { return RETURN; }
