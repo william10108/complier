@@ -45,6 +45,11 @@ static int sym_get(const char *s) {
 
 /* 全域 return 值 */
 int ret_val = 0;
+
+/* ===== 函式呼叫用的參數暫存 ===== */
+#define MAX_ARGS 10
+int  arg_vals[MAX_ARGS];
+int  arg_cnt;
 %}
 
 %union {
@@ -52,14 +57,17 @@ int ret_val = 0;
     char *sval;
 }
 
+/* token 列表 */
 %token <sval> IDENTIFIER
 %token <ival> NUMBER
 %token INT RETURN IF ELSE WHILE FOR
 %token EQ NE LE GE ANDAND OROR NOT
 
+/* nonterminal 型態 */
 %type <ival>
       expression logical_or logical_and equality relational
       additive term factor
+%type       opt_arg_list arg_list
 
 %%
 
@@ -76,6 +84,7 @@ function
     : INT IDENTIFIER '(' param_list_opt ')' compound_statement
     ;
 
+/* 參數宣告（也加入符號表） */
 param_list_opt
     : /* empty */
     | param_list
@@ -86,7 +95,6 @@ param_list
     | param_list ',' param_decl
     ;
 
-/* 如果要追蹤參數，也可在這裡 sym_add */
 param_decl
     : INT IDENTIFIER
         { sym_add($2); }
@@ -107,7 +115,7 @@ statement
     | unmatched_stmt
     ;
 
-/* ===== 已配對的 statement (matched) ===== */
+/* ===== 已配對的 statement ===== */
 matched_stmt
     /* 變數宣告 */
     : INT decl_list ';'
@@ -130,23 +138,19 @@ matched_stmt
     | IF '(' expression ')' matched_stmt ELSE matched_stmt
     ;
 
-/* ===== 未配對的 statement (unmatched) ===== */
+/* ===== 未配對的 statement ===== */
 unmatched_stmt
-    /* 如果沒帶 else */
     : IF '(' expression ')' statement
-    /* else 要配給外層的 if */
     | IF '(' expression ')' matched_stmt ELSE unmatched_stmt
     ;
 
-/* 宣告清單，把每個 IDENTIFIER 加入符號表 */
+/* 宣告清單，把每個 identifier 加入符號表 */
 decl_list
-    : IDENTIFIER
-        { sym_add($1); }
-    | decl_list ',' IDENTIFIER
-        { sym_add($3); }
+    : IDENTIFIER              { sym_add($1); }
+    | decl_list ',' IDENTIFIER { sym_add($3); }
     ;
 
-/* ──── 運算式層次 ──── */
+/* ──── 運算式 & 函式呼叫 ──── */
 expression
     : logical_or
     ;
@@ -187,10 +191,30 @@ term
     | factor                        { $$ = $1; }
     ;
 
+/* 在這裡擴充函式呼叫的 grammar */
 factor
     : '(' expression ')'            { $$ = $2; }
+    | IDENTIFIER '(' opt_arg_list ')' 
+        {
+            /* 僅示範 add(x,y) */
+            if (strcmp($1, "add")==0 && arg_cnt==2)
+                $$ = arg_vals[0] + arg_vals[1];
+            else
+                $$ = sym_get($1);
+        }
     | NUMBER                        { $$ = $1; }
     | IDENTIFIER                    { $$ = sym_get($1); }
+    ;
+
+/* 參數串處理 */
+opt_arg_list
+    : /* empty */                   { arg_cnt = 0; }
+    | arg_list                      { /* arg_cnt & arg_vals 已在 arg_list 設定 */ }
+    ;
+
+arg_list
+    : expression                    { arg_cnt = 1; arg_vals[0] = $1; }
+    | arg_list ',' expression      { arg_vals[arg_cnt++] = $3; }
     ;
 
 %%
