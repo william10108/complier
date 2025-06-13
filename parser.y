@@ -7,7 +7,6 @@ extern int yylex();
 extern char *yytext;
 void yyerror(const char *s);
 
-/* 保留一個全域變數存放 return 的值 */
 int ret_val = 0;
 %}
 
@@ -64,21 +63,30 @@ statement_list
     ;
 
 statement
-    : declaration
-    | assignment
+    : matched_stmt
+    | unmatched_stmt
+    ;
+
+matched_stmt
+    : 
+      INT decl_list ';'
+    | IDENTIFIER '=' expression ';'
     | RETURN expression ';'
         {
             ret_val = $2;
             printf("return %d\n", ret_val);
         }
-    | if_statement
-    | while_statement
-    | for_statement
+    | WHILE '(' expression ')' matched_stmt
+    | FOR '(' IDENTIFIER '=' expression ';' expression ';' IDENTIFIER '+' '+' ')' matched_stmt
     | compound_statement
+    | IF '(' expression ')' matched_stmt ELSE matched_stmt
     ;
 
-declaration
-    : INT decl_list ';'
+unmatched_stmt
+    /* if 沒帶 else */
+    : IF '(' expression ')' statement
+    /* else 要配給外層的 if */
+    | IF '(' expression ')' matched_stmt ELSE unmatched_stmt
     ;
 
 decl_list
@@ -86,25 +94,6 @@ decl_list
     | decl_list ',' IDENTIFIER
     ;
 
-assignment
-    : IDENTIFIER '=' expression ';'
-    ;
-
-if_statement
-    : IF '(' expression ')' statement %prec LOWER_THAN_ELSE
-    | IF '(' expression ')' statement ELSE statement
-    ;
-
-while_statement
-    : WHILE '(' expression ')' statement
-    ;
-
-/* 最簡化的 for 迴圈：初始化 (assignment)，條件 (expression)，遞增 (expression) */
-for_statement
-    : FOR '(' assignment expression ';' expression ')' statement
-    ;
-
-/* ──── 運算子階層 ──── */
 expression
     : logical_or
     ;
@@ -148,7 +137,7 @@ term
 factor
     : '(' expression ')'            { $$ = $2; }
     | NUMBER                        { $$ = $1; }
-    | IDENTIFIER                    { $$ = 0; /* 變數值暫不追蹤 */ }
+    | IDENTIFIER                    { $$ = 0;  }
     ;
 
 %%
