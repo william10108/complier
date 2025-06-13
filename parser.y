@@ -7,13 +7,13 @@ extern int yylex();
 extern char *yytext;
 void yyerror(const char *s);
 
-/* 簡易符號表 (最多支援 100 個變數) */
+/* ===== 符號表設定 ===== */
 #define MAX_SYM 100
 static char *sym_name[MAX_SYM];
 static int   sym_val [MAX_SYM];
 static int   sym_cnt = 0;
 
-/* 找變數索引，找不到回傳 -1 */
+/* 找變數在符號表的 index；找不到回傳 -1 */
 static int sym_index(const char *s) {
     for (int i = 0; i < sym_cnt; i++)
         if (strcmp(sym_name[i], s) == 0)
@@ -21,7 +21,7 @@ static int sym_index(const char *s) {
     return -1;
 }
 
-/* 新增變數（若已存在則回傳既有 index） */
+/* 新增變數（若已存在則回傳原來的 index） */
 static int sym_add(const char *s) {
     int idx = sym_index(s);
     if (idx >= 0) return idx;
@@ -37,7 +37,7 @@ static void sym_set(const char *s, int v) {
     sym_val[idx] = v;
 }
 
-/* 取變數值(不存在回傳 0) */
+/* 取得變數值；不存在則回傳 0 */
 static int sym_get(const char *s) {
     int idx = sym_index(s);
     return (idx >= 0 ? sym_val[idx] : 0);
@@ -47,25 +47,20 @@ static int sym_get(const char *s) {
 int ret_val = 0;
 %}
 
-/*－－－－－－－－－－－－－－－－－－－－－－－－－*/
 %union {
     int  ival;
     char *sval;
 }
 
-/* tokens */
 %token <sval> IDENTIFIER
 %token <ival> NUMBER
 %token INT RETURN IF ELSE WHILE FOR
 %token EQ NE LE GE ANDAND OROR NOT
 
-/* nonterminals 的型態 */
 %type <ival>
       expression logical_or logical_and equality relational
       additive term factor
-%/
 
-/*－－－－－－－－－－－－－－－－－－－－－－－－－*/
 %%
 
 program
@@ -91,9 +86,10 @@ param_list
     | param_list ',' param_decl
     ;
 
+/* 如果要追蹤參數，也可在這裡 sym_add */
 param_decl
     : INT IDENTIFIER
-        { sym_add($2); /* 參數也加入符號表 */ }
+        { sym_add($2); }
     ;
 
 compound_statement
@@ -105,13 +101,13 @@ statement_list
     | statement_list statement
     ;
 
-/* 將 statement 分成已配對和未配對，消除 dangling‐else */
+/* 分成 matched / unmatched 消除 dangling‐else */
 statement
     : matched_stmt
     | unmatched_stmt
     ;
 
-/* ────────── 已配對的語句 (matched_stmt) ────────── */
+/* ===== 已配對的 statement (matched) ===== */
 matched_stmt
     /* 變數宣告 */
     : INT decl_list ';'
@@ -124,25 +120,25 @@ matched_stmt
             ret_val = $2;
             printf("return %d\n", ret_val);
         }
-    /* if…else */
-    | IF '(' expression ')' matched_stmt ELSE matched_stmt
     /* while */
     | WHILE '(' expression ')' matched_stmt
-    /* for (最簡化) */
-    | FOR '(' assignment expression ';' expression ')' matched_stmt
+    /* for (最簡化示範) */
+    | FOR '(' IDENTIFIER '=' expression ';' expression ';' IDENTIFIER '+' '+' ')' matched_stmt
     /* 區塊 */
     | compound_statement
+    /* if…else */
+    | IF '(' expression ')' matched_stmt ELSE matched_stmt
     ;
 
-/* ────────── 未配對的語句 (unmatched_stmt) ────────── */
+/* ===== 未配對的 statement (unmatched) ===== */
 unmatched_stmt
-    /* if 沒帶 else */
+    /* 如果沒帶 else */
     : IF '(' expression ')' statement
-    /* else 要配給外層 if */
+    /* else 要配給外層的 if */
     | IF '(' expression ')' matched_stmt ELSE unmatched_stmt
     ;
 
-/* 宣告清單 */
+/* 宣告清單，把每個 IDENTIFIER 加入符號表 */
 decl_list
     : IDENTIFIER
         { sym_add($1); }
@@ -150,13 +146,7 @@ decl_list
         { sym_add($3); }
     ;
 
-/* for 迴圈中可用的 init 賦值 (同 assignment) */
-assignment
-    : IDENTIFIER '=' expression ';'
-        { sym_set($1, $3); }
-    ;
-
-/* ────────── 運算式階層 ────────── */
+/* ──── 運算式層次 ──── */
 expression
     : logical_or
     ;
