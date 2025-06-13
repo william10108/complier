@@ -46,7 +46,10 @@ static int sym_get(const char *s) {
 /* 全域 return 值 */
 int ret_val = 0;
 
-/* ===== 函式呼叫用的參數暫存 ===== */
+/* 當前正在解析/執行的函式名稱 */
+static char *current_function = NULL;
+
+/* ===== add(x,y) Stub 用參數暫存 ===== */
 #define MAX_ARGS 10
 int  arg_vals[MAX_ARGS];
 int  arg_cnt;
@@ -57,13 +60,11 @@ int  arg_cnt;
     char *sval;
 }
 
-/* token 列表 */
 %token <sval> IDENTIFIER
 %token <ival> NUMBER
 %token INT RETURN IF ELSE WHILE FOR
 %token EQ NE LE GE ANDAND OROR NOT
 
-/* nonterminal 型態 */
 %type <ival>
       expression logical_or logical_and equality relational
       additive term factor
@@ -80,13 +81,20 @@ function_list
     | function
     ;
 
+/* 在這裡用 mid-rule action 設定 current_function */
 function
-    : INT IDENTIFIER '(' param_list_opt ')' compound_statement
+    : INT IDENTIFIER
+        {
+            /* 進入一個新的函式定義 */
+            if (current_function) free(current_function);
+            current_function = strdup($2);
+        }
+      '(' param_list_opt ')' compound_statement
     ;
 
-/* 參數宣告（也加入符號表） */
+/* 參數宣告也加到符號表 */
 param_list_opt
-    : /* empty */
+    : /* empty */ 
     | param_list
     ;
 
@@ -109,24 +117,25 @@ statement_list
     | statement_list statement
     ;
 
-/* 分成 matched / unmatched 消除 dangling‐else */
+/* 分 matched / unmatched 消除 dangling-else */
 statement
     : matched_stmt
     | unmatched_stmt
     ;
 
-/* ===== 已配對的 statement ===== */
+/* ===== 完整配對的 statement ===== */
 matched_stmt
     /* 變數宣告 */
     : INT decl_list ';'
     /* 賦值 */
     | IDENTIFIER '=' expression ';'
         { sym_set($1, $3); }
-    /* return */
+    /* return：只有在 main 才印出 */
     | RETURN expression ';'
         {
             ret_val = $2;
-            printf("return %d\n", ret_val);
+            if (current_function && strcmp(current_function, "main") == 0)
+                printf("return %d\n", ret_val);
         }
     /* while */
     | WHILE '(' expression ')' matched_stmt
@@ -138,19 +147,19 @@ matched_stmt
     | IF '(' expression ')' matched_stmt ELSE matched_stmt
     ;
 
-/* ===== 未配對的 statement ===== */
+/* ===== 處理 dangling-else ===== */
 unmatched_stmt
     : IF '(' expression ')' statement
     | IF '(' expression ')' matched_stmt ELSE unmatched_stmt
     ;
 
-/* 宣告清單，把每個 identifier 加入符號表 */
+/* 宣告清單：把每個變數名稱加到符號表 */
 decl_list
-    : IDENTIFIER              { sym_add($1); }
-    | decl_list ',' IDENTIFIER { sym_add($3); }
+    : IDENTIFIER                { sym_add($1); }
+    | decl_list ',' IDENTIFIER  { sym_add($3); }
     ;
 
-/* ──── 運算式 & 函式呼叫 ──── */
+/* ──── 運算式 & 函式呼叫 stub ──── */
 expression
     : logical_or
     ;
@@ -191,25 +200,26 @@ term
     | factor                        { $$ = $1; }
     ;
 
-/* 在這裡擴充函式呼叫的 grammar */
+/* 因為我們只有示範 add(x,y)，這裡加簡易 stub */
+/* 也會處理一般變數和括號 */
 factor
     : '(' expression ')'            { $$ = $2; }
     | IDENTIFIER '(' opt_arg_list ')' 
         {
-            /* 僅示範 add(x,y) */
-            if (strcmp($1, "add")==0 && arg_cnt==2)
+            /* 只對 add(x,y) 做相加，其他函式一律回傳 0 */
+            if (strcmp($1, "add") == 0 && arg_cnt == 2)
                 $$ = arg_vals[0] + arg_vals[1];
             else
-                $$ = sym_get($1);
+                $$ = 0;
         }
     | NUMBER                        { $$ = $1; }
     | IDENTIFIER                    { $$ = sym_get($1); }
     ;
 
-/* 參數串處理 */
+/* 參數串解析 */
 opt_arg_list
     : /* empty */                   { arg_cnt = 0; }
-    | arg_list                      { /* arg_cnt & arg_vals 已在 arg_list 設定 */ }
+    | arg_list                      { /* arg_cnt 及 arg_vals 已在 arg_list 中設定 */ }
     ;
 
 arg_list
