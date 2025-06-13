@@ -14,6 +14,7 @@ NUMBER  [0-9]+
 "if"            return IF;
 "else"          return ELSE;
 "while"         return WHILE;
+"for"           return FOR;        /* 新增 for */
 
 "=="            return EQ;
 "!="            return NE;

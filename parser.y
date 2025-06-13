@@ -2,9 +2,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 extern int yylex();
 extern char *yytext;
 void yyerror(const char *s);
+
+/* 保留一個全域變數存放 return 的值 */
+int ret_val = 0;
 %}
 
 %union {
@@ -14,7 +18,7 @@ void yyerror(const char *s);
 
 %token <sval> IDENTIFIER
 %token <ival> NUMBER
-%token INT RETURN IF ELSE WHILE
+%token INT RETURN IF ELSE WHILE FOR
 %token EQ NE LE GE ANDAND OROR NOT
 
 %type <ival>
@@ -63,8 +67,13 @@ statement
     : declaration
     | assignment
     | RETURN expression ';'
+        {
+            ret_val = $2;
+            printf("return %d\n", ret_val);
+        }
     | if_statement
     | while_statement
+    | for_statement
     | compound_statement
     ;
 
@@ -90,6 +99,12 @@ while_statement
     : WHILE '(' expression ')' statement
     ;
 
+/* 最簡化的 for 迴圈：初始化 (assignment)，條件 (expression)，遞增 (expression) */
+for_statement
+    : FOR '(' assignment expression ';' expression ')' statement
+    ;
+
+/* ──── 運算子階層 ──── */
 expression
     : logical_or
     ;
